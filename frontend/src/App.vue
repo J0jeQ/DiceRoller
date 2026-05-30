@@ -5,9 +5,13 @@ import { initSession, roll, getHistory, clearHistory } from './services/api.js';
 const DICE = [4, 6, 8, 10, 12, 20, 100];
 
 const result = ref(null);
+const displayValue = ref('-');
 const lastDie = ref('');
 const history = ref([]);
 const error = ref('');
+const rolling = ref(false);
+
+let tickInterval = null;
 
 onMounted(async () => {
   try {
@@ -19,15 +23,40 @@ onMounted(async () => {
   }
 });
 
+function startTick(sides) {
+  displayValue.value = Math.floor(Math.random() * sides) + 1;
+  tickInterval = setInterval(() => {
+    displayValue.value = Math.floor(Math.random() * sides) + 1;
+  }, 70);
+}
+
+function stopTick() {
+  clearInterval(tickInterval);
+  tickInterval = null;
+}
+
 async function doRoll(sides) {
+  if (rolling.value) return;
+
   error.value = '';
   lastDie.value = 'D' + sides;
+  rolling.value = true;
+  startTick(sides);
+
+  const animDone = new Promise((r) => setTimeout(r, 750));
+
   try {
-    const data = await roll(sides);
+    const [data] = await Promise.all([roll(sides), animDone]);
+    stopTick();
     result.value = data.roll.result;
+    displayValue.value = data.roll.result;
     history.value = data.history;
   } catch (e) {
+    stopTick();
     error.value = e.message;
+    displayValue.value = result.value ?? '-';
+  } finally {
+    rolling.value = false;
   }
 }
 
@@ -36,6 +65,7 @@ async function doClear() {
     const data = await clearHistory();
     history.value = data.history;
     result.value = null;
+    displayValue.value = '-';
     lastDie.value = '';
   } catch (e) {
     error.value = e.message;
@@ -47,13 +77,13 @@ async function doClear() {
   <div class="wrap">
     <h1>Dice Roller</h1>
 
-    <div class="result-box">
+    <div class="result-box" :class="{ rolling }">
       <p v-if="lastDie">{{ lastDie }}</p>
-      <p class="big">{{ result ?? '-' }}</p>
+      <p class="big" :class="{ rolling, landed: !rolling && result !== null }">{{ displayValue }}</p>
     </div>
 
     <div class="dice">
-      <button v-for="d in DICE" :key="d" @click="doRoll(d)">D{{ d }}</button>
+      <button v-for="d in DICE" :key="d" :disabled="rolling" @click="doRoll(d)">D{{ d }}</button>
     </div>
 
     <section class="history">
@@ -93,9 +123,37 @@ h1 {
   margin-bottom: 20px;
 }
 
+.result-box.rolling {
+  animation: shake 0.12s infinite;
+}
+
 .big {
   font-size: 64px;
   font-weight: bold;
+  transition: transform 0.15s ease, color 0.15s ease;
+}
+
+.big.rolling {
+  color: #888;
+}
+
+.big.landed {
+  animation: pop 0.25s ease;
+}
+
+.dice button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+@keyframes shake {
+  0%, 100% { transform: rotate(-1.5deg); }
+  50% { transform: rotate(1.5deg); }
+}
+
+@keyframes pop {
+  0% { transform: scale(1.2); color: #fff; }
+  100% { transform: scale(1); color: inherit; }
 }
 
 .dice {
